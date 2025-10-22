@@ -63,10 +63,17 @@ class FilterConverter
         $expression = $filter->getExpression();
         $column = $filter->getColumn();
         if ($column === 'servicehost_in_slatime' || $column === 'host_in_slatime') {
-            $filters = array_map(fn ($period) => new Equal(
-                'host.vars.sla_id',
-                preg_replace('/^sla/', '', $period->name)
-            ), self::listSlaTimes());
+            if ((string) $filter->getExpression() === '1') {
+                $filters = array_map(fn ($period) => new Equal(
+                    'host.vars.sla_id',
+                    preg_replace('/^sla/', '', $period->name)
+                ), self::listSlaTimes());
+            } else {
+                $filters = array_map(fn ($period) => new Unequal(
+                    'host.vars.sla_id',
+                    preg_replace('/^sla/', '', $period->name)
+                ), self::listSlaTimes());
+            }
 
             return new All(...$filters);
         }
@@ -283,7 +290,7 @@ class FilterConverter
                     return false;
                 }
 
-                // Doesn't get dropped because there's a default dashlet using it..
+                // Doesn't get dropped because there's a default dashlet using it.
                 // Though since this dashlet uses it to check for overdue hosts we'll
                 // replace it as next_update is volatile (only in redis up2date)
                 return Filter::equal('host.state.is_overdue', $filter instanceof LessThan ? 'y' : 'n');
