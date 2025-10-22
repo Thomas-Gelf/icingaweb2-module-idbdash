@@ -79,8 +79,8 @@ class FilterConverter
             return new All(...$filters);
         }
 
-        $column = self::convertColumnName($column);
         $expression = self::convertColumnValue($column, $expression);
+        $column = self::convertColumnName($column);
 
         if ($filter instanceof LegacyFilterEqual) {
             return new Equal($column, $expression);
@@ -133,7 +133,7 @@ class FilterConverter
         if ($columnName === 'service') {
             return $value;
         }
-        if (preg_match('/^_(host|service)_(.+)$/', $columnName, $match)) {
+        if (preg_match('/^_(host|service)_(.+)$/', $columnName)) {
             return $value;
         }
 
@@ -144,6 +144,9 @@ class FilterConverter
         }
         if ($mapping === self::DROP) {
             throw new InvalidArgumentException("Unsupported filter column, DROP: $columnName");
+        }
+        if ($mapping === self::USE_EXPR) {
+            return $value;
         }
 
         if (is_array($mapping)) {
