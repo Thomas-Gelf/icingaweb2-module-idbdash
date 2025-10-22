@@ -14,6 +14,7 @@ use Icinga\Data\Filter\FilterMatch as LegacyFilterMatch;
 use Icinga\Data\Filter\FilterNot as LegacyFilterNot;
 use Icinga\Data\Filter\FilterNotEqual as LegacyFilterNotEqual;
 use Icinga\Data\Filter\FilterOr as LegacyFilterOr;
+use InvalidArgumentException;
 use ipl\Stdlib\Filter;
 use ipl\Stdlib\Filter\All;
 use ipl\Stdlib\Filter\Any;
@@ -79,6 +80,7 @@ class FilterConverter
         }
 
         $column = self::convertColumnName($column);
+        $expression = self::convertColumnValue($column, $expression);
 
         if ($filter instanceof LegacyFilterEqual) {
             return new Equal($column, $expression);
@@ -124,6 +126,36 @@ class FilterConverter
         }
 
         return array_key_first($mapping);
+    }
+
+    public static function convertColumnValue(string $columnName, $value): string
+    {
+        if ($columnName === 'service') {
+            return $value;
+        }
+        if (preg_match('/^_(host|service)_(.+)$/', $columnName, $match)) {
+            return $value;
+        }
+
+        $mapping = self::hostsColumns()[$columnName] ?? self::servicesColumns()[$columnName] ?? null;
+
+        if ($mapping === null) {
+            throw new InvalidArgumentException("Unsupported filter column: $columnName");
+        }
+        if ($mapping === self::DROP) {
+            throw new InvalidArgumentException("Unsupported filter column, DROP: $columnName");
+        }
+
+        if (is_array($mapping)) {
+            return $mapping[$value] ?? throw new InvalidArgumentException(sprintf(
+                'Cannot map %s for %s, I have: %s',
+                $value,
+                $columnName,
+                implode(', ', $mapping)
+            ));
+        }
+
+        return $value;
     }
 
     protected static function hostsColumns(): array
