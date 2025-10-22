@@ -121,11 +121,12 @@ class FilterConverter
         if ($mapping === null) {
             throw new RuntimeException("Unsupported filter column: $name");
         }
-        if ($mapping === self::DROP) {
+        $newName = array_key_first($mapping);
+        if ($mapping[$newName] === self::DROP) {
             throw new RuntimeException("Unsupported filter column, DROP: $name");
         }
 
-        return array_key_first($mapping);
+        return $newName;
     }
 
     public static function convertColumnValue(string $columnName, $value): string
@@ -142,23 +143,25 @@ class FilterConverter
         if ($mapping === null) {
             throw new InvalidArgumentException("Unsupported filter column: $columnName");
         }
-        if ($mapping === self::DROP) {
-            throw new InvalidArgumentException("Unsupported filter column, DROP: $columnName");
+        $newName = array_key_first($mapping);
+        $values = $mapping[$newName];
+        if ($values === self::DROP) {
+            throw new RuntimeException("Unsupported filter column, DROP: $columnName");
         }
-        if ($mapping === self::USE_EXPR) {
+
+        if ($values === self::USE_EXPR) {
             return $value;
         }
 
-        if (is_array($mapping)) {
-            return $mapping[$value] ?? throw new InvalidArgumentException(sprintf(
+        if (is_array($values)) {
+            return $values[$value] ?? throw new InvalidArgumentException(sprintf(
                 'Cannot map %s for %s, I have: %s',
                 $value,
                 $columnName,
-                implode(', ', $mapping)
+                implode(', ', $values)
             ));
         }
-
-        return $value;
+        throw new RuntimeException("Unsupported filter mapping for $columnName: $values");
     }
 
     protected static function hostsColumns(): array
