@@ -58,6 +58,7 @@ class DashboardController extends CompatController
         $stateType = $url->shift('stateType');
         $limit = $url->shift('limit');
         $sort = $url->shift('sort');
+        $sortDirection = $url->shift('dir'); // TODO: use it
         $newFilter = $this->filterFromQueryString($url->getQueryString(), $stateType);
 
         $compact = $this->view->compact;
@@ -78,7 +79,7 @@ class DashboardController extends CompatController
         $this->params->shift('limit');
         $this->params->shift('page');
 
-        $hosts->orderBy($sort ? FilterConverter::convertColumnName($sort) : 'host.state.severity');
+        $hosts->orderBy($sort ? FilterConverter::convertColumnName($sort) : 'host.state.severity', 'DESC');
         if ($columnString = $this->params->shift('columns', '')) {
             foreach (explode(',', $columnString) as $column) {
                 if ($column = trim($column)) {
@@ -86,7 +87,7 @@ class DashboardController extends CompatController
                 }
             }
         } else {
-            $columns = ['host.name', 'host.state.output', 'host.vars.os'];
+            $columns = ['host.name', 'host.state.output', 'host.vars.location']; // TODO: params?
         }
         // TODO: limit, page?
 
@@ -98,8 +99,8 @@ class DashboardController extends CompatController
         $results = $hosts->execute();
         $hostList = (new HostList($results));
         $hostList->setViewMode('tabular');
-        $hostList = (new HostItemTable($results, HostItemTable::applyColumnMetaData($hosts, $columns)))
-            ->setSort('host.status.severity');
+        $hostList = (new HostItemTable($results, HostItemTable::applyColumnMetaData($hosts, $columns)));
+        // Hint: list also has ->setSort()
 
         $this->content()->add($hostList);
         // yield $this->export($hosts);
@@ -118,18 +119,17 @@ class DashboardController extends CompatController
 
     protected function filterFromQueryString(string $queryString, $stateType)
     {
-        $oldFilter = Filter::fromQueryString($queryString);
-        $newFilter = FilterConverter::convert($oldFilter);
+        $filter = FilterConverter::convert(Filter::fromQueryString($queryString));
         if ($stateType === 'hard') {
-            if ($newFilter instanceof All) {
-                $newFilter->add(new Equal('host.state.hard_state', '1'));
+            $typeFilter = new Equal('host.state.state_type', 'hard');
+            if ($filter instanceof All) {
+                $filter->add($typeFilter);
             } else {
-                $newFilter = new All($newFilter, new Equal('host.state.hard_state', '1'));
+                $filter = new All($filter, $typeFilter);
             }
-            // $newFilter->add('host.state.type')
         }
 
-        return $newFilter;
+        return $filter;
     }
 
     protected function filter(Query $query, ?Rule $filter = null): self
