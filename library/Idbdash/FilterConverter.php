@@ -76,7 +76,7 @@ class FilterConverter
                 ), self::listSlaTimes());
             }
 
-            return new All(...$filters);
+            return new Any(...$filters);
         }
 
         $expression = self::convertColumnValue($column, $expression);
