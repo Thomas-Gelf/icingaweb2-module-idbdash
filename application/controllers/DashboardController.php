@@ -205,8 +205,10 @@ class DashboardController extends CompatController
     protected function prepareHeader(string $title): void
     {
         $this->params->shift('view');
-        $this->addSingleTab($title);
-        $this->addTitle($title);
+        if (!$this->view->compact) {
+            $this->addSingleTab($title);
+            $this->addTitle($title);
+        }
         $this->content()->addAttributes(['class' => 'icinga-module module-icingadb']);
         $this->setAutorefreshInterval(10);
     }
