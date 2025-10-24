@@ -56,7 +56,7 @@ class DashboardController extends CompatController
         ]);
         $query->getWith()['host.state']->setJoinType('INNER');
         $query->setResultSetClass(VolatileStateResults::class);
-        $columns = $this->applyUrlToQuery(clone($this->url()), $query);
+        $columns = $this->applyUrlToQuery(clone($this->url()), $query, ['host.name', 'host.state.output', 'host.vars.location']);
         $this->showList($query, HostList::class, HostItemTable::class, $columns);
     }
 
@@ -72,7 +72,7 @@ class DashboardController extends CompatController
         ]);
         $query->getWith()['service.state']->setJoinType('INNER');
         $query->setResultSetClass(VolatileStateResults::class);
-        $columns = $this->applyUrlToQuery(clone($this->url()), $query);
+        $columns = $this->applyUrlToQuery(clone($this->url()), $query, ['service.name', 'host.name', 'service.state.output']);
         $this->showList($query, ServiceList::class, ServiceItemTable::class, $columns);
     }
 
@@ -108,9 +108,8 @@ class DashboardController extends CompatController
         );
     }
 
-    protected function applyUrlToQuery(Url $url, Query $query): array
+    protected function applyUrlToQuery(Url $url, Query $query, array $defaultColumns): array
     {
-
         foreach (['modifyFilter', 'format'] as $ignore) {
             $url->shift($ignore);
         }
@@ -147,11 +146,7 @@ class DashboardController extends CompatController
                 }
             }
         } else {
-            if ($query instanceof Service) {
-                $columns = ['service.name', 'host.name', 'service.state.output']; // TODO: params?
-            } else {
-                $columns = ['host.name', 'host.state.output', 'host.vars.location'];
-            }
+            $columns = $defaultColumns;
         }
         // TODO: limit, page?
 
