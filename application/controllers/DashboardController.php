@@ -148,9 +148,9 @@ class DashboardController extends CompatController
             }
         } else {
             if ($query instanceof Service) {
-                $columns = ['host.name', 'host.state.output', 'host.vars.location'];
+                $columns = ['service.name', 'host.name', 'service.state.output']; // TODO: params?
             } else {
-                $columns = ['service.name', 'host.name', 'host.state.output']; // TODO: params?
+                $columns = ['host.name', 'host.state.output', 'host.vars.location'];
             }
         }
         // TODO: limit, page?
