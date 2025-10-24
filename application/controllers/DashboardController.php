@@ -3,26 +3,29 @@
 namespace Icinga\Module\Idbdash\Controllers;
 
 use gipfl\IcingaWeb2\CompatController;
+use gipfl\IcingaWeb2\Url;
 use Icinga\Data\Filter\Filter;
 use Icinga\Module\Icingadb\Common\Auth;
 use Icinga\Module\Icingadb\Common\Database;
 use Icinga\Module\Icingadb\Common\SearchControls;
+use Icinga\Module\Icingadb\Model\Service;
 use Icinga\Module\Icingadb\Redis\VolatileStateResults;
 use Icinga\Module\Icingadb\Widget\ItemList\HostList;
+use Icinga\Module\Icingadb\Widget\ItemList\ServiceList;
+use Icinga\Module\Icingadb\Widget\ItemList\StateList;
 use Icinga\Module\Icingadb\Widget\ItemTable\HostItemTable;
+use Icinga\Module\Icingadb\Widget\ItemTable\ServiceItemTable;
+use Icinga\Module\Icingadb\Widget\ItemTable\StateItemTable;
 use Icinga\Module\Icingadb\Widget\ShowMore;
 use Icinga\Module\Idbdash\FilterConverter;
-use Icinga\Module\Idbdash\IcingaDbLookup;
 use Icinga\Module\Idbdash\IcingaHost;
-use Icinga\Module\Idbdash\TimePeriodHelper;
 use ipl\Html\Html;
 use ipl\Orm\Query;
 use ipl\Orm\UnionQuery;
 use ipl\Stdlib\Filter\All;
 use ipl\Stdlib\Filter\Equal;
 use ipl\Stdlib\Filter\Rule;
-use ipl\Web\Filter\QueryString;
-use ipl\Web\Url;
+use ipl\Web\Url as iplUrl;
 
 class DashboardController extends CompatController
 {
@@ -45,7 +48,58 @@ class DashboardController extends CompatController
 
     public function hostsAction(): void
     {
-        $url = $this->url();
+        $this->prepareHeader($this->translate('Hosts'));
+        $query = IcingaHost::on($this->getDb())->with(['state', 'icon_image',  'state.last_comment']);
+        $query->getWith()['host.state']->setJoinType('INNER');
+        $query->setResultSetClass(VolatileStateResults::class);
+        $columns = $this->applyUrlToQuery(clone($this->url()), $query);
+        $this->showList($query, HostList::class, HostItemTable::class, $columns);
+    }
+    public function servicesAction(): void
+    {
+        $this->prepareHeader($this->translate('Services'));
+        $query = Service::on($this->getDb())->with(['state', 'icon_image',  'state.last_comment']);
+        $query->getWith()['service.state']->setJoinType('INNER');
+        $query->setResultSetClass(VolatileStateResults::class);
+        $columns = $this->applyUrlToQuery(clone($this->url()), $query);
+        $this->showList($query, ServiceList::class, ServiceItemTable::class, $columns);
+    }
+
+    /**
+     * @param Query $query
+     * @param class-string<StateList> $listClass
+     * @param class-string<StateItemTable> $tableClass
+     * @return void
+     */
+    protected function showList(Query $query, string $listClass, string $tableClass, array $columns): void
+    {
+        $query->withColumns($columns);
+        $query->peekAhead($this->view->compact);
+
+        // $this->showSql($query);
+        $results = $query->execute();
+        $list = (new $listClass($results));
+        // Hint: list also has ->setSort()
+        $list->setViewMode('tabular');
+        $table = (new $tableClass($results, $tableClass::applyColumnMetaData($query, $columns)));
+
+
+        $this->content()->add($table);
+        // yield $this->export($hosts);
+
+        $this->content()->add(
+            (new ShowMore($results, iplUrl::fromRequest()->without(['showCompact', 'limit', 'view'])))
+                ->setBaseTarget('_next')
+                ->setAttribute('title', sprintf(
+                    t('Show all %d rows'),
+                    $query->count()
+                ))
+        );
+    }
+
+    protected function applyUrlToQuery(Url $url, Query $query): array
+    {
+
         foreach (['modifyFilter', 'format'] as $ignore) {
             $url->shift($ignore);
         }
@@ -57,29 +111,23 @@ class DashboardController extends CompatController
         }
         $stateType = $url->shift('stateType');
         $limit = $url->shift('limit');
-        $sort = $url->shift('sort');
-        $sortDirection = $url->shift('dir'); // TODO: use it
-        $newFilter = $this->filterFromQueryString($url->getQueryString(), $stateType);
-
-        $compact = $this->view->compact;
-        $this->params->shift('view');
-        $this->addSingleTab($this->translate('Hosts'));
-        $this->addTitle($this->translate('Hosts'));
-        $this->content()->addAttributes(['class' => 'icinga-module module-icingadb']);
-        $db = $this->getDb();
-
-        $hosts = IcingaHost::on($db)->with(['state', 'icon_image',  'state.last_comment']);
-        if ($limit) {
-            $hosts->limit($limit);
-        }
-        $hosts->getWith()['host.state']->setJoinType('INNER');
-        $hosts->setResultSetClass(VolatileStateResults::class);
 
         // TODO: Do we neet params here? This is redundant
-        $this->params->shift('limit');
-        $this->params->shift('page');
+        // $this->params->shift('limit');
+        // $this->params->shift('page');
 
-        $hosts->orderBy($sort ? FilterConverter::convertColumnName($sort) : 'host.state.severity', 'DESC');
+        $sort = $url->shift('sort');
+        $sortDirection = $url->shift('dir'); // TODO: use it
+
+
+        $newFilter = $this->filterFromQueryString($url->getQueryString(), $stateType);
+        $this->filter($query, $newFilter);
+
+        if ($limit) {
+            $query->limit($limit);
+        }
+
+        $query->orderBy($sort ? FilterConverter::convertColumnName($sort) : 'host.state.severity', 'DESC');
         if ($columnString = $this->params->shift('columns', '')) {
             foreach (explode(',', $columnString) as $column) {
                 if ($column = trim($column)) {
@@ -91,33 +139,13 @@ class DashboardController extends CompatController
         }
         // TODO: limit, page?
 
-        $hosts->withColumns(array_merge($columns, array_map(FilterConverter::convertColumnName(...), $extraColumns)));
-        $this->filter($hosts, $newFilter);
-        $hosts->peekAhead($compact);
-        // $this->showSql($hosts);
+        $columns = array_merge($columns, array_map(FilterConverter::convertColumnName(...), $extraColumns));
+        $query->withColumns($columns);
 
-        $results = $hosts->execute();
-        $hostList = (new HostList($results));
-        $hostList->setViewMode('tabular');
-        $hostList = (new HostItemTable($results, HostItemTable::applyColumnMetaData($hosts, $columns)));
-        // Hint: list also has ->setSort()
-
-        $this->content()->add($hostList);
-        // yield $this->export($hosts);
-
-        $this->content()->add(
-            (new ShowMore($results, Url::fromRequest()->without(['showCompact', 'limit', 'view'])))
-                ->setBaseTarget('_next')
-                ->setAttribute('title', sprintf(
-                    t('Show all %d hosts'),
-                    $hosts->count()
-                ))
-        );
-
-        $this->setAutorefreshInterval(10);
+        return $columns;
     }
 
-    protected function filterFromQueryString(string $queryString, $stateType)
+    protected function filterFromQueryString(string $queryString, $stateType): Rule
     {
         $filter = FilterConverter::convert(Filter::fromQueryString($queryString));
         if ($stateType === 'hard') {
@@ -132,7 +160,7 @@ class DashboardController extends CompatController
         return $filter;
     }
 
-    protected function filter(Query $query, ?Rule $filter = null): self
+    protected function filter(Query $query, Rule $filter): self
     {
         if ($this->format !== 'sql' || $this->hasPermission('config/authentication/roles/show')) {
             $this->applyRestrictions($query);
@@ -140,36 +168,13 @@ class DashboardController extends CompatController
 
         if ($query instanceof UnionQuery) {
             foreach ($query->getUnions() as $query) {
-                $query->filter($filter ?: $this->getFilter());
+                $query->filter($filter);
             }
         } else {
-            $query->filter($filter ?: $this->getFilter());
+            $query->filter($filter);
         }
 
         return $this;
-    }
-
-    /**
-     * Get the filter created from query string parameters
-     *
-     * Hint: no longer in use
-     */
-    protected function getFilter(): Rule
-    {
-        if ($this->filter === null) {
-            $this->filter = QueryString::parse((string) $this->params);
-
-            $db = new IcingaDbLookup();
-            $active = TimePeriodHelper::filterActiveTimePeriods($db->loadTimePeriods());
-            $filters = array_map(fn ($period) => new Equal(
-                'host.vars.sla_id',
-                preg_replace('/^sla/', '', $period->name)
-            ), $active);
-            $this->filter->add(new All(...$filters));
-            $this->filter->add(new Equal('host.state.is_problem', 'n'));
-        }
-
-        return $this->filter;
     }
 
     protected function showSql(Query $hosts): void
@@ -195,5 +200,14 @@ class DashboardController extends CompatController
         }
 
         $this->content()->add(Html::tag('pre', $sql));
+    }
+
+    protected function prepareHeader(string $title): void
+    {
+        $this->params->shift('view');
+        $this->addSingleTab($title);
+        $this->addTitle($title);
+        $this->content()->addAttributes(['class' => 'icinga-module module-icingadb']);
+        $this->setAutorefreshInterval(10);
     }
 }
