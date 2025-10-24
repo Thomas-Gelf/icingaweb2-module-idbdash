@@ -49,16 +49,27 @@ class DashboardController extends CompatController
     public function hostsAction(): void
     {
         $this->prepareHeader($this->translate('Hosts'));
-        $query = IcingaHost::on($this->getDb())->with(['state', 'icon_image',  'state.last_comment']);
+        $query = IcingaHost::on($this->getDb())->with([
+            'state',
+            'icon_image',
+            'state.last_comment'
+        ]);
         $query->getWith()['host.state']->setJoinType('INNER');
         $query->setResultSetClass(VolatileStateResults::class);
         $columns = $this->applyUrlToQuery(clone($this->url()), $query);
         $this->showList($query, HostList::class, HostItemTable::class, $columns);
     }
+
     public function servicesAction(): void
     {
         $this->prepareHeader($this->translate('Services'));
-        $query = Service::on($this->getDb())->with(['state', 'icon_image',  'state.last_comment']);
+        $query = Service::on($this->getDb())->with([
+            'state',
+            'state.last_comment',
+            'host',
+            'host.state',
+            'icon_image'
+        ]);
         $query->getWith()['service.state']->setJoinType('INNER');
         $query->setResultSetClass(VolatileStateResults::class);
         $columns = $this->applyUrlToQuery(clone($this->url()), $query);
@@ -129,13 +140,18 @@ class DashboardController extends CompatController
 
         $query->orderBy($sort ? FilterConverter::convertColumnName($sort) : 'host.state.severity', 'DESC');
         if ($columnString = $this->params->shift('columns', '')) {
+            // Untested.
             foreach (explode(',', $columnString) as $column) {
                 if ($column = trim($column)) {
                     $columns[] = $column;
                 }
             }
         } else {
-            $columns = ['host.name', 'host.state.output', 'host.vars.location']; // TODO: params?
+            if ($query instanceof Service) {
+                $columns = ['host.name', 'host.state.output', 'host.vars.location'];
+            } else {
+                $columns = ['service.name', 'host.name', 'host.state.output']; // TODO: params?
+            }
         }
         // TODO: limit, page?
 
