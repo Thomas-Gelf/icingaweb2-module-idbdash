@@ -56,7 +56,7 @@ class DashboardController extends CompatController
         ]);
         $query->getWith()['host.state']->setJoinType('INNER');
         $query->setResultSetClass(VolatileStateResults::class);
-        $columns = $this->applyUrlToQuery(clone($this->url()), $query, ['host.name', 'host.state.output', 'host.vars.location']);
+        $columns = $this->applyUrlToQuery(clone($this->url()), $query, ['host.name', 'host.state.output']);
         $this->showList($query, HostList::class, HostItemTable::class, $columns);
     }
 
