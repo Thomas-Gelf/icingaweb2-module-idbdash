@@ -10,6 +10,7 @@ use InvalidArgumentException;
 class TimePeriod
 {
     public function __construct(
+        public readonly string $id,
         public readonly string $name,
         public readonly bool $preferIncludes,
         /** @var TimePeriodRange[] $ranges */

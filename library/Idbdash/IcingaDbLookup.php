@@ -23,6 +23,7 @@ class IcingaDbLookup
         $periods = [];
         foreach (IcingaDbTimeperiod::on($db) as $timePeriod) {
             $periods[$timePeriod->id] = new TimePeriod(
+                $timePeriod->id,
                 $timePeriod->name,
                 $timePeriod->prefer_includes === 'y'
             );
