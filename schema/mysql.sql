@@ -12,11 +12,12 @@ CREATE TABLE idbdash_sla_periods (
         ON UPDATE CASCADE
 ) ENGINE InnoDB;
 
-DROP FUNCTION IF EXISTS get_sla_ok_percent_with_slatime;
+DROP FUNCTION IF EXISTS get_sla_ok_percent_with_sla_time;
 DELIMITER //
-CREATE FUNCTION get_sla_ok_percent_with_slatime(
+CREATE FUNCTION get_sla_ok_percent_with_sla_time(
   in_host_id binary(20),
   in_service_id binary(20),
+  in_timeperiod_id binary(20),
   in_start_time bigint unsigned,
   in_end_time bigint unsigned
 )
@@ -25,13 +26,14 @@ READS SQL DATA
 BEGIN
   DECLARE result decimal(7, 4);
   DECLARE row_event_time bigint unsigned;
-  DECLARE row_event_type enum('state_change', 'downtime_start', 'downtime_end', 'end');
+  DECLARE row_event_type enum('state_change', 'downtime_start', 'downtime_end', 'sla_time_start', 'sla_time_end', 'end');
   DECLARE row_event_prio int;
   DECLARE row_hard_state tinyint unsigned;
   DECLARE row_previous_hard_state tinyint unsigned;
   DECLARE last_event_time bigint unsigned;
   DECLARE last_hard_state tinyint unsigned;
   DECLARE active_downtimes int unsigned;
+  DECLARE active_sla_times int unsigned;
   DECLARE problem_time bigint unsigned;
   DECLARE total_time bigint unsigned;
   DECLARE done int;
@@ -65,6 +67,33 @@ BEGIN
         AND d.downtime_start < in_end_time
         AND d.downtime_end >= in_start_time
         AND d.downtime_end < in_end_time
+    ) UNION ALL (
+      -- all sla_time_start events before the end of the SLA interval
+      -- for periods that overlap the SLA interval in any way
+      SELECT
+        GREATEST(start_time, in_start_time) AS event_time,
+        'sla_time_start' AS event_type,
+        4 AS event_prio,
+        NULL AS hard_state,
+        NULL AS previous_hard_state
+      FROM idbdash_sla_periods p
+      WHERE p.timeperiod_id = in_timeperiod_id
+        AND p.start_time < in_end_time
+        AND p.end_time >= in_start_time
+    ) UNION ALL (
+      -- all sla_time_start events before the end of the SLA interval
+      -- for periods that overlap the SLA interval in any way
+      SELECT
+        end_time AS event_time,
+        'sla_time_end' AS event_type,
+        5 AS event_prio,
+        NULL AS hard_state,
+        NULL AS previous_hard_state
+      FROM idbdash_sla_periods p
+      WHERE p.timeperiod_id = in_timeperiod_id
+        AND p.start_time < in_end_time
+        AND p.end_time >= in_start_time
+        AND p.end_time < in_end_time
     ) UNION ALL (
       -- all state events strictly in interval
       SELECT
@@ -136,6 +165,7 @@ BEGIN
   SET total_time = in_end_time - in_start_time;
   SET last_event_time = in_start_time;
   SET active_downtimes = 0;
+  SET active_sla_times = 0;
 
   SET done = 0;
   OPEN cur;
@@ -150,6 +180,7 @@ BEGIN
     ELSEIF ((in_service_id IS NULL AND last_hard_state > 0) OR (in_service_id IS NOT NULL AND last_hard_state > 1))
       AND last_hard_state != 99
       AND active_downtimes = 0
+      AND active_sla_times = 0
     THEN
       SET problem_time = problem_time + row_event_time - last_event_time;
     END IF;
@@ -161,11 +192,15 @@ BEGIN
       SET active_downtimes = active_downtimes + 1;
     ELSEIF row_event_type = 'downtime_end' THEN
       SET active_downtimes = active_downtimes - 1;
+    ELSEIF row_event_type = 'sla_time_start' THEN
+      SET active_sla_times = active_sla_times + 1;
+    ELSEIF row_event_type = 'sla_time_end' THEN
+      SET active_sla_times = active_sla_times - 1;
     END IF;
   END LOOP;
   CLOSE cur;
 
   SET result = 100 * (total_time - problem_time) / total_time;
   RETURN result;
-END//
+END //
 DELIMITER ;
